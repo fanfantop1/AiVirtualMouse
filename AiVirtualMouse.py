@@ -27,6 +27,7 @@ frame_size_scale = 1.0
 frame_offset_x = 0
 frame_offset_y = 0
 confidence_threshold = 0.5
+img_center_x, img_center_y = wCam // 2, hCam // 2
 confidence_changed = False
 show_tutorial = False
 window_created = False
@@ -193,51 +194,53 @@ def init_detector():
     )
 
 def draw_direction_control(img):
-    center = (wCam // 2, hCam // 2)
-    radius = 100
-    cv2.circle(img, center, radius, (255, 255, 255), 2)
-    cv2.circle(img, center, radius - 5, (200, 200, 200), 1)
+    ih, iw = img.shape[:2]
+    cx, cy = iw // 2, ih // 2
+    radius = min(iw, ih) // 2 - 20
+    cv2.circle(img, (cx, cy), radius, (255, 255, 255), 2)
+    cv2.circle(img, (cx, cy), radius - 5, (200, 200, 200), 1)
     angle_rad = np.deg2rad(direction_offset)
-    ix = center[0] + int(np.sin(angle_rad) * (radius - 20))
-    iy = center[1] - int(np.cos(angle_rad) * (radius - 20))
-    cv2.line(img, center, (ix, iy), (0, 255, 0), 3)
+    ix = cx + int(np.sin(angle_rad) * (radius - 20))
+    iy = cy - int(np.cos(angle_rad) * (radius - 20))
+    cv2.line(img, (cx, cy), (ix, iy), (0, 255, 0), 3)
     cv2.circle(img, (ix, iy), 10, (0, 255, 0), cv2.FILLED)
     directions = ['上', '右', '下', '左']
+    fs = max(14, iw * 20 // 240)
     for i, d in enumerate(directions):
         a = i * 90
-        tx = center[0] + int(np.sin(np.deg2rad(a)) * (radius + 30))
-        ty = center[1] - int(np.cos(np.deg2rad(a)) * (radius + 30))
-        img = draw_chinese_text(img, d, (tx - 10, ty - 10), 20, (255, 255, 255))
-    img = draw_chinese_text(img, '鼠标点击调整方向', (50, hCam - 50), 16, (255, 255, 255))
-    img = draw_chinese_text(img, '按 E 键退出方向调整', (50, hCam - 25), 16, (255, 255, 255))
+        tx = cx + int(np.sin(np.deg2rad(a)) * (radius + fs))
+        ty = cy - int(np.cos(np.deg2rad(a)) * (radius + fs))
+        img = draw_chinese_text(img, d, (tx - fs // 2, ty - fs // 2), fs, (255, 255, 255))
+    img = draw_chinese_text(img, '鼠标点击调整方向', (iw // 6, ih - 50), 16, (255, 255, 255))
+    img = draw_chinese_text(img, '按 E 键退出方向调整', (iw // 6, ih - 25), 16, (255, 255, 255))
     return img
 
-def draw_tutorial(img):
-    overlay = img.copy()
-    cv2.rectangle(overlay, (10, 10), (wCam - 10, hCam - 10), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.8, img, 0.2, 0, img)
-    img = draw_chinese_text(img, '使用教程', (wCam // 2 - 40, 30), 18, (0, 255, 255))
+def make_tutorial_canvas(cam_img):
+    """返回扩展画布：左侧摄像头画面 + 右侧教程面板，互不重叠"""
+    ih, iw = cam_img.shape[:2]
+    pw = iw * 110 // 240  # 面板宽度按比例缩放
+    canvas = np.zeros((ih, iw + pw, 3), dtype=np.uint8)
+    canvas[:, :iw] = cam_img
+    # 面板背景
+    cv2.rectangle(canvas, (iw, 0), (iw + pw, ih), (40, 40, 40), -1)
+    cv2.rectangle(canvas, (iw, 0), (iw + pw, ih), (100, 100, 100), 1)
+    # 标题
+    fs = max(10, iw * 14 // 240)
+    canvas = draw_chinese_text(canvas, '使用教程', (iw + pw // 2 - 28, 10), fs, (0, 255, 255))
     lines = [
-        '手势操作:',
-        '  食指伸出 - 移动鼠标',
-        '  食指+中指靠近 - 点击鼠标',
-        '  中指伸出 - 向上滚动',
-        '  小指伸出 - 向下滚动',
-        '',
-        '快捷键:',
-        '  Q - 调整方向',
-        '  +/- - 调整框大小',
-        '  WASD/方向键 - 移动框',
-        '  Z/X - 调整置信度',
-        '  H - 显示/隐藏教程',
-        '  ESC - 关闭软件',
+        '手势:',
+        ' 食指-移动',
+        ' 食+中-点击',
+        ' 中指-上滚',
+        ' 小指-下滚',
     ]
-    y_pos = 55
+    fs_small = max(8, iw * 10 // 240)
+    y_pos = 12 + fs + 6
     for line in lines:
-        img = draw_chinese_text(img, line, (20, y_pos), 12, (255, 255, 255))
-        y_pos += 15
-    img = draw_chinese_text(img, '按 H 或点击关闭', (wCam // 2 - 50, hCam - 25), 12, (255, 255, 0))
-    return img
+        canvas = draw_chinese_text(canvas, line, (iw + 6, y_pos), fs_small, (220, 220, 220))
+        y_pos += fs_small + 2
+    canvas = draw_chinese_text(canvas, '按H或点击关闭', (iw + 4, ih - fs - 4), fs_small, (255, 255, 0))
+    return canvas
 
 # ---- 统一的鼠标回调（模块级别，只注册一次） ----
 
@@ -245,7 +248,7 @@ def on_mouse(event, x, y, flags, param):
     global direction_offset, show_tutorial
     if event == cv2.EVENT_LBUTTONDOWN:
         if show_direction_control:
-            center = (wCam // 2, hCam // 2)
+            center = (img_center_x, img_center_y)
             direction_offset = calculate_angle(x, y, center)
             print(f"方向调整为: {direction_offset:.1f}度")
         else:
@@ -276,6 +279,7 @@ while True:
     success, img = cap.read()
     if not success:
         continue
+    img_center_x, img_center_y = img.shape[1] // 2, img.shape[0] // 2
 
     # 计算绿色框位置
     margin = 20
@@ -405,9 +409,10 @@ while True:
     img = draw_chinese_text(img, '教程', (button_x + 15, button_y + 20), 16, (255, 255, 255))
 
     if show_tutorial:
-        img = draw_tutorial(img)
-
-    cv2.imshow("Image", img)
+        display = make_tutorial_canvas(img)
+    else:
+        display = img
+    cv2.imshow("Image", display)
     window_created = True
 
     # 键盘控制
