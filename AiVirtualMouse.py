@@ -153,7 +153,9 @@ def process_gestures(lmList, detector, frame_box, screen_size, angle, ploc, smoo
     - should_click: 是否触发点击
     - scroll_delta: >0 上滚, <0 下滚, 0 不滚
     """
-    clocX, clocY = ploc
+    wScr, hScr = screen_size
+    clocX = max(0, min(wScr - 1, ploc[0]))
+    clocY = max(0, min(hScr - 1, ploc[1]))
     should_click = False
     scroll_delta = 0
 
@@ -163,15 +165,14 @@ def process_gestures(lmList, detector, frame_box, screen_size, angle, ploc, smoo
     x1, y1 = lmList[8][1:]
     fingers = detector.fingersUp()
     fL, fT, fR, fB = frame_box
-    wScr, hScr = screen_size
 
     # 移动模式：仅食指伸出
     if fingers[1] and not fingers[2]:
         x3 = np.interp(x1, (fL, fR), (0, wScr))
         y3 = np.interp(y1, (fT, fB), (0, hScr))
         x3, y3 = rotate_coordinates(x3, y3, wScr, hScr, angle)
-        clocX = ploc[0] + (x3 - ploc[0]) / smooth
-        clocY = ploc[1] + (y3 - ploc[1]) / smooth
+        clocX = max(0, min(wScr - 1, ploc[0] + (x3 - ploc[0]) / smooth))
+        clocY = max(0, min(hScr - 1, ploc[1] + (y3 - ploc[1]) / smooth))
 
     # 点击：食指+中指伸出
     if fingers[1] and fingers[2]:
@@ -333,7 +334,12 @@ while True:
         # 移动
         if fingers[1] and not fingers[2]:
             if abs(clocX - plocX) > 1 or abs(clocY - plocY) > 1:
-                autopy.mouse.move(wScr - clocX, clocY)
+                move_x = int(max(0, min(wScr - 1, wScr - clocX)))
+                move_y = int(max(0, min(hScr - 1, clocY)))
+                try:
+                    autopy.mouse.move(move_x, move_y)
+                except ValueError:
+                    print(f"[ERROR] move({move_x}, {move_y})  screen=({wScr},{hScr})  cloc=({clocX:.1f},{clocY:.1f})  ploc=({plocX:.1f},{plocY:.1f})")
             plocX, plocY = clocX, clocY
 
         # 点击
