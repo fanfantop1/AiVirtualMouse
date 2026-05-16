@@ -8,7 +8,7 @@ import os
 import json
 from PIL import Image, ImageDraw, ImageFont
 
-##############################
+###############################
 wCam, hCam = 240, 180
 frameR = 30
 smoothening = 5
